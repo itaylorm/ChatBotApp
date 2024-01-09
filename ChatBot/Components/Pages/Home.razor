@@ -1,0 +1,156 @@
+﻿@page "/"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@using Newtonsoft.Json
+@using System.Text
+@using OpenAI_API
+@using OpenAI_API.Chat
+@using OpenAI_API.Completions
+@using OpenAI_API.Models
+
+@inject HttpClient Http
+@inject ILogger<Home> log 
+@inject IConfiguration config
+
+<PageTitle>Chat</PageTitle>
+
+<div class="container">
+    <div class="row">
+        <div class="col-8">
+            <div class="messages">
+                @for(int i = 0; i < messages.Count; i++)
+                {
+                    if(i % 2 == 0)
+                    {
+                        <div class="question bg-primary w-75 p-2 mx-2 my-1 text-white fs-5">@messages[i]</div>
+                    }
+                    else
+                    {
+                        <div class="response bg-success w-75 p-2 mx-2 my-1 text-white fs-5">@messages[i]</div>
+                    }
+                }
+            </div>
+            <div class="pt-1">
+                <InputText class="form-control w-100 mb-2" @bind-Value="context" placeholder="Enter your role Ex: Chef, Teacher, Programmer" />
+                <InputText class="form-control w-100" @bind-Value="message" @onkeyup="KeyUp" placeholder="Enter Question here"/>
+            </div>
+        </div>
+    </div>
+</div>
+@code {
+    public string context = "";
+    public string message = "";
+    public List<string> messages = new List<string>();
+    private Conversation? currentChat;
+
+    protected override Task OnInitializedAsync()
+    {
+        return base.OnInitializedAsync();
+    }
+
+    private async Task KeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await AskQuestion();
+        }
+    }
+
+    public Conversation StartConversation(string context)
+    {
+        var apiKey = config["ApiKey"];
+        if(apiKey == null)
+        {
+            throw new Exception("ApiKey is not set in secrets.json or appsettings.json");
+        }
+
+        var api = new OpenAI_API.OpenAIAPI(apiKey);
+        var chat = api.Chat.CreateConversation();
+        chat.Model = Model.ChatGPTTurbo;
+        chat.RequestParameters.MaxTokens = 512;
+        chat.RequestParameters.Temperature = 0.5;
+        chat.AppendSystemMessage(context);
+        return chat;
+    }
+
+    public async Task AskQuestion()
+    {
+        if (currentChat == null)
+        {
+            currentChat = StartConversation("You are a chef");
+        }
+        
+        messages.Add(message);
+        currentChat.AppendUserInput(message);
+        messages.Add("Processing...");
+        StateHasChanged();
+
+        int messageId = messages.Count - 1;
+        await foreach (var res in currentChat.StreamResponseEnumerableFromChatbotAsync())
+        {
+            if (messages[messageId] == "Processing...")
+            {
+                messages[messageId] = "";
+                StateHasChanged();
+            }
+            messages[messageId] = $"{messages[messageId]}{(res.ToString())}";
+            StateHasChanged();
+        }
+        message = "";
+    }
+
+    public async Task SendMessageUrl()
+    {
+        try
+        {
+            messages.Add(message);
+
+            var content = new List<dynamic>
+            {
+                new { role = "user", content = message }
+            };
+
+            message = "";
+
+            var jsonContent = new
+            {
+                model = "gpt-3.5-turbo",
+                messages = content,
+                max_tokens = 512,
+                temperature = 0.5
+            };
+
+            // Make the API call
+            var responseContent = await Http.PostAsync("https://api.openai.com/v1/chat/completions", 
+                new StringContent(JsonConvert.SerializeObject(jsonContent), Encoding.UTF8, "application/json"));
+
+            // Read the response as a string
+            var resContext = await responseContent.Content.ReadAsStringAsync();
+
+            // Deserialize the response into a dynamic object
+            var data = JsonConvert.DeserializeObject<dynamic>(resContext);
+            var returnMessage = data.choices[0].message.content;
+            messages.Add(returnMessage.ToString());
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            log.LogError(ex, "Unable to process message");
+        }
+
+
+    }
+
+    public async Task SendMessageHello()
+    {
+        var apiKey = config["ApiKey"];
+        if (apiKey == null)
+        {
+            throw new Exception("ApiKey is not set in secrets.json or appsettings.json");
+        }
+
+        var api = new OpenAI_API.OpenAIAPI(apiKey);
+        var result = await api.Chat.CreateChatCompletionAsync(message);
+        Console.WriteLine(result);
+    }
+}
