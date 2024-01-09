@@ -6,26 +6,27 @@
 @using OpenAI_API.Chat
 @using OpenAI_API.Completions
 @using OpenAI_API.Models
+@using System.Text.RegularExpressions
 
 @inject HttpClient Http
 @inject ILogger<Home> log 
 @inject IConfiguration config
 
-<PageTitle>Chat</PageTitle>
-
-<div class="container">
+<PageTitle>Questions and Answers</PageTitle>
+<div class="h1 text-primary text-center">Questions and Answers</div>
+<div class="container-fluid">
     <div class="row">
-        <div class="col-8">
+        <div class="col">
             <div class="messages">
                 @for(int i = 0; i < messages.Count; i++)
                 {
                     if(i % 2 == 0)
                     {
-                        <div class="question bg-primary w-75 p-2 mx-2 my-1 text-white fs-5">@messages[i]</div>
+                        <div class="question bg-primary w-50 p-2 mx-2 my-1 text-white fs-5">@messages[i]</div>
                     }
                     else
                     {
-                        <div class="response bg-success w-75 p-2 mx-2 my-1 text-white fs-5">@messages[i]</div>
+                        <div class="response bg-success p-2 mx-2 my-1 text-white fs-5"><pre>@messages[i]</pre></div>
                     }
                 }
             </div>
@@ -76,7 +77,7 @@
     {
         if (currentChat == null)
         {
-            currentChat = StartConversation("You are a chef");
+            currentChat = StartConversation(context);
         }
         
         messages.Add(message);
@@ -92,7 +93,13 @@
                 messages[messageId] = "";
                 StateHasChanged();
             }
-            messages[messageId] = $"{messages[messageId]}{(res.ToString())}";
+
+            var pattern = @"/(?<!\d)\.(?="")|(?<!\d)\./m";
+            string replacement = ".\n";
+
+            var newMessage = res.ToString();
+            string formatted = Regex.Replace(newMessage, pattern, replacement);
+            messages[messageId] = $"{messages[messageId]}{formatted}";
             StateHasChanged();
         }
         message = "";
